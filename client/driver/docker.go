@@ -96,6 +96,8 @@ type DockerDriverConfig struct {
 	TTY              bool                `mapstructure:"tty"`                // Allocate a Pseudo-TTY
 	Interactive      bool                `mapstructure:"interactive"`        // Keep STDIN open even if not attached
 	ShmSize          int64               `mapstructure:"shm_size"`           // Size of /dev/shm of the container in bytes
+	VolumesRaw       []map[string]string `mapstructure:"volumes"`            //
+	Volumes          map[string]string   `mapstructure:"-"`
 }
 
 // Validate validates a docker driver config
@@ -106,6 +108,7 @@ func (c *DockerDriverConfig) Validate() error {
 
 	c.PortMap = mapMergeStrInt(c.PortMapRaw...)
 	c.Labels = mapMergeStrStr(c.LabelsRaw...)
+	c.Volumes = mapMergeStrStr(c.VolumesRaw...)
 
 	return nil
 }
@@ -208,6 +211,9 @@ func (d *DockerDriver) Validate(config map[string]interface{}) error {
 			"labels": &fields.FieldSchema{
 				Type: fields.TypeArray,
 			},
+			"volumes": &fields.FieldSchema{
+				Type: fields.TypeArray,
+			},
 			"auth": &fields.FieldSchema{
 				Type: fields.TypeArray,
 			},
@@ -301,6 +307,16 @@ func (d *DockerDriver) dockerClients() (*docker.Client, *docker.Client, error) {
 	return client, waitClient, merr.ErrorOrNil()
 }
 
+func (d *DockerDriver) userVolumes(volumes map[string]string) []string {
+ bindings := []string{}
+ for source, destination := range volumes {
+   bindings = append(bindings, fmt.Sprintf("%s:%s", source, destination))
+ }
+ return bindings
+}
+
+
+
 func (d *DockerDriver) Fingerprint(cfg *config.Config, node *structs.Node) (bool, error) {
 	// Get the current status so that we can log any debug messages only if the
 	// state changes
@@ -373,6 +389,8 @@ func (d *DockerDriver) createContainer(ctx *ExecContext, task *structs.Task,
 	if err != nil {
 		return c, err
 	}
+
+	binds = append(binds, d.userVolumes(driverConfig.Volumes)...)
 
 	// Set environment variables.
 	d.taskEnv.SetAllocDir(filepath.Join("/", allocdir.SharedAllocName))
